@@ -1,6 +1,6 @@
 # Groq App Generator
 
-An interactive web application that generates and modifies web applications using Groq's LLM API. Built with Next.js and TypeScript.
+An interactive web application that generates and modifies web applications using AWS Inferentia's LLM API. Built with Next.js and TypeScript.
 
 ## Features
 
@@ -14,14 +14,16 @@ An interactive web application that generates and modifies web applications usin
 
 - Next.js 14 (App Router)
 - TypeScript
-- Groq SDK
+- AWS Inferentia SDK
 - React Syntax Highlighter
 - UUID for session management
 
 ## Environment Variables
 
 Required environment variables:
-- `GROQ_API_KEY`: Your Groq API key
+- `AWS_ACCESS_KEY_ID`: Your AWS access key ID
+- `AWS_SECRET_ACCESS_KEY`: Your AWS secret access key
+- `AWS_REGION`: Your AWS region
 
 ## Getting Started
 
