@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import Groq from "groq-sdk";
+import AWS from "aws-sdk";
 import { constructPrompt } from "@/utils/prompt";
 import { signHtml } from "@/server/signing";
 import {
@@ -14,22 +14,23 @@ import {
 	MAINTENANCE_USE_VANILLA_MODEL,
 } from "@/lib/settings";
 
-const client = new Groq({
-	apiKey: process.env.GROQ_API_KEY,
+const client = new AWS.SageMakerRuntime({
+	region: process.env.AWS_REGION,
+	accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+	secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
 });
 
 async function checkContentSafety(
 	content: string,
 ): Promise<{ safe: boolean; category?: string }> {
 	try {
-		const safetyCheck = await client.chat.completions.create({
-			messages: [{ role: "user", content }],
-			model: "llama-guard-3-8b",
-			temperature: 0,
-			max_tokens: 10,
-		});
-
-		const response = safetyCheck.choices[0]?.message?.content || "";
+		const params = {
+			Body: JSON.stringify({ content }),
+			EndpointName: "llama-guard-3-8b",
+			ContentType: "application/json",
+		};
+		const safetyCheck = await client.invokeEndpoint(params).promise();
+		const response = JSON.parse(safetyCheck.Body.toString());
 		const lines = response.trim().split("\n");
 
 		return {
@@ -43,43 +44,53 @@ async function checkContentSafety(
 }
 
 async function tryVisionCompletion(imageData: string, model: string) {
-	return await client.chat.completions.create({
-		messages: [
-			{
-				role: "user",
-				content: [
-					{
-						type: "text",
-						text: "Describe this UI drawing in detail",
-					},
-					{
-						type: "image_url",
-						image_url: {
-							url: imageData,
+	const params = {
+		Body: JSON.stringify({
+			messages: [
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "Describe this UI drawing in detail",
 						},
-					},
-				],
-			},
-		],
-		model: model,
-		temperature: 0.7,
-		max_tokens: 1024,
-		top_p: 1,
-		stream: false,
-		stop: null,
-	});
+						{
+							type: "image_url",
+							image_url: {
+								url: imageData,
+							},
+						},
+					],
+				},
+			],
+			model: model,
+			temperature: 0.7,
+			max_tokens: 1024,
+			top_p: 1,
+			stream: false,
+			stop: null,
+		}),
+		EndpointName: model,
+		ContentType: "application/json",
+	};
+	return await client.invokeEndpoint(params).promise();
 }
 
 async function tryCompletion(prompt: string, model: string) {
-	return await client.chat.completions.create({
-		messages: [{ role: "user", content: prompt }],
-		model: model,
-		temperature: 0.1,
-		max_tokens: 8192,
-		top_p: 1,
-		stream: false,
-		stop: null,
-	});
+	const params = {
+		Body: JSON.stringify({
+			messages: [{ role: "user", content: prompt }],
+			model: model,
+			temperature: 0.1,
+			max_tokens: 8192,
+			top_p: 1,
+			stream: false,
+			stop: null,
+		}),
+		EndpointName: model,
+		ContentType: "application/json",
+	};
+	return await client.invokeEndpoint(params).promise();
 }
 
 async function generateWithFallback(prompt: string) {
@@ -107,14 +118,14 @@ async function getDrawingDescription(imageData: string): Promise<string> {
 			imageData,
 			PRIMARY_VISION_MODEL,
 		);
-		return chatCompletion.choices[0].message.content;
+		return JSON.parse(chatCompletion.Body.toString()).choices[0].message.content;
 	} catch (error) {
 		try {
 			const chatCompletion = await tryVisionCompletion(
 				imageData,
 				FALLBACK_VISION_MODEL,
 			);
-			return chatCompletion.choices[0].message.content;
+			return JSON.parse(chatCompletion.Body.toString()).choices[0].message.content;
 		} catch (error) {
 			console.error("Error processing drawing:", error);
 			throw error;
@@ -165,7 +176,7 @@ export async function POST(request: Request) {
 			);
 		}
 
-		let generatedHtml = chatCompletion.choices[0]?.message?.content || "";
+		let generatedHtml = JSON.parse(chatCompletion.Body.toString()).choices[0]?.message?.content || "";
 
 		// Extract HTML content from between backticks if present
 		if (generatedHtml.includes("```html")) {
@@ -176,7 +187,7 @@ export async function POST(request: Request) {
 		return NextResponse.json({
 			html: generatedHtml,
 			signature: signHtml(generatedHtml),
-			usage: chatCompletion.usage,
+			usage: JSON.parse(chatCompletion.Body.toString()).usage,
 		});
 	} catch (error) {
 		console.error("Error generating HTML:", error);

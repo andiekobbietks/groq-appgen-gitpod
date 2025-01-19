@@ -1,31 +1,43 @@
 import { NextResponse } from 'next/server';
 
-import Groq from 'groq-sdk';
+import AWS from 'aws-sdk';
 import { PRIMARY_MODEL, getFallbackModel } from '@/utils/model-selection';
 
-const client = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
+const client = new AWS.SageMakerRuntime({
+  region: process.env.AWS_REGION,
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
 });
 
 async function generateSuggestionWithFallback(messages: any[]) {
   try {
-    return await client.chat.completions.create({
-      messages,
-      model: PRIMARY_MODEL,
-      temperature: 0.7,
-      max_tokens: 200,
-      top_p: 1,
-    });
+    const params = {
+      Body: JSON.stringify({
+        messages,
+        model: PRIMARY_MODEL,
+        temperature: 0.7,
+        max_tokens: 200,
+        top_p: 1,
+      }),
+      EndpointName: PRIMARY_MODEL,
+      ContentType: "application/json",
+    };
+    return await client.invokeEndpoint(params).promise();
   } catch (error) {
     // If the primary model fails, try with a fallback model
     console.error('Primary model failed, trying fallback model');
-    return await client.chat.completions.create({
-      messages,
-      model: getFallbackModel(),
-      temperature: 0.7,
-      max_tokens: 200,
-      top_p: 1,
-    });
+    const params = {
+      Body: JSON.stringify({
+        messages,
+        model: getFallbackModel(),
+        temperature: 0.7,
+        max_tokens: 200,
+        top_p: 1,
+      }),
+      EndpointName: getFallbackModel(),
+      ContentType: "application/json",
+    };
+    return await client.invokeEndpoint(params).promise();
   }
 }
 
@@ -51,7 +63,7 @@ ${html}
       },
     ]);
 
-    const responseContent = completion.choices[0]?.message?.content || '';
+    const responseContent = completion.Body.toString();
     const startIndex = responseContent.indexOf('{');
     const endIndex = responseContent.lastIndexOf('}');
     
